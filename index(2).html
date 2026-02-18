@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- 検索エンジンに載せない設定 -->
+    <meta name="robots" content="noindex">
+    <title>仕訳deオークション - 全商2級版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=DotGothic16&family=Noto+Sans+JP:wght@400;700&display=swap');
+        
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            background-color: #f0f2f5;
+            touch-action: manipulation;
+        }
+
+        .pixel-font { font-family: 'DotGothic16', sans-serif; }
+
+        /* 既存のスタイルを維持 */
+        .card-animate { transition: all 0.2s ease-out; user-select: none; touch-action: none; }
+        .drop-zone { min-height: 120px; border: 2px dashed #cbd5e1; border-radius: 12px; background-color: rgba(255,255,255,0.5); }
+        .drop-zone.drag-over { background-color: rgba(59, 130, 246, 0.1); border-color: #3b82f6; }
+        .catalog-scroll, .inventory-scroll { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+        .catalog-scroll { max-height: 50vh; }
+        .inventory-scroll { max-height: 30vh; }
+        .dragging { opacity: 0.5; transform: scale(1.1); z-index: 1000; }
+        #qr-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 2000; justify-content: center; align-items: center; padding: 20px; }
+    </style>
+</head>
+<body class="p-2 md:p-8">
+
+    <div id="app" class="max-w-6xl mx-auto">
+        <!-- Header -->
+        <header class="flex justify-between items-center mb-4 bg-white p-4 md:p-6 rounded-2xl shadow-sm border-b-4 border-red-500">
+            <div>
+                <h1 class="text-xl md:text-3xl font-bold text-red-800 pixel-font">仕訳deオークション</h1>
+                <p class="text-[10px] md:text-sm text-gray-500 font-bold">全商2級 対策アプリ</p>
+            </div>
+            <div class="flex items-center gap-4">
+                <button onclick="showQRCode()" class="bg-gray-100 p-2 rounded-lg hover:bg-gray-200 transition-colors" title="このアプリのQRを表示">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v.01"/></svg>
+                </button>
+                <div class="text-right">
+                    <div class="text-[10px] text-gray-400">予算残高</div>
+                    <div class="text-lg md:text-2xl font-bold text-orange-600" id="current-balance">¥3,000,000</div>
+                </div>
+            </div>
+        </header>
+
+        <!-- QR Modal -->
+        <div id="qr-modal" onclick="closeQRCode()">
+            <div class="bg-white p-8 rounded-2xl text-center space-y-4" onclick="event.stopPropagation()">
+                <h3 class="font-bold text-lg">共有用QRコード</h3>
+                <div id="qrcode-container" class="flex justify-center p-4 bg-white"></div>
+                <button onclick="closeQRCode()" class="w-full py-2 bg-gray-800 text-white rounded-xl font-bold">閉じる</button>
+            </div>
+        </div>
+
+        <!-- Main Game Area -->
+        <div id="game-container">
+            <!-- Phase 1: Purchase (Catalog) -->
+            <div id="auction-phase" class="space-y-4">
+                <div class="bg-gray-50 p-4 rounded-2xl border-2 border-gray-300">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-lg font-bold text-gray-700 italic">🛍️ 科目カタログ（一律 ¥200,000）</h2>
+                        <button id="start-settlement" onclick="startSettlement()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-xl shadow-lg transition-all active:scale-95">
+                            仕訳構築へ進む ➔
+                        </button>
+                    </div>
+                    <div id="item-catalog" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 catalog-scroll p-1"></div>
+                </div>
+                <div class="bg-white p-4 rounded-2xl shadow-sm border-t-4 border-orange-400">
+                    <h3 class="text-sm font-bold text-gray-700 mb-2">🛒 購入済みの科目 (<span id="inv-count">0</span>)</h3>
+                    <div id="inventory" class="flex flex-wrap gap-2 md:gap-4 min-h-[60px] inventory-scroll p-1"></div>
+                </div>
+            </div>
+
+            <!-- Phase 2: Settlement -->
+            <div id="settlement-phase" class="hidden space-y-4">
+                <div class="text-center mb-2">
+                    <h2 class="text-lg md:text-2xl font-bold text-green-700">✍️ 決算整理仕訳</h2>
+                </div>
+                <div class="grid grid-cols-2 gap-2 md:gap-8">
+                    <div class="bg-red-50 p-3 rounded-xl border-t-4 border-red-400">
+                        <div class="flex justify-between items-center mb-2">
+                            <h3 class="text-xs md:text-sm font-bold text-red-700">借方 (Dr.)</h3>
+                            <span id="debit-total" class="text-[10px] md:text-sm font-bold text-red-600">¥0</span>
+                        </div>
+                        <div id="debit-zone" class="drop-zone p-2 flex flex-wrap gap-1" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+                    </div>
+                    <div class="bg-blue-50 p-3 rounded-xl border-t-4 border-blue-400">
+                        <div class="flex justify-between items-center mb-2">
+                            <h3 class="text-xs md:text-sm font-bold text-blue-700">貸方 (Cr.)</h3>
+                            <span id="credit-total" class="text-[10px] md:text-sm font-bold text-blue-600">¥0</span>
+                        </div>
+                        <div id="credit-zone" class="drop-zone p-2 flex flex-wrap gap-1" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+                    </div>
+                </div>
+                <div class="bg-gray-100 p-4 rounded-2xl">
+                    <h3 class="text-xs md:text-sm font-bold mb-2">手元のカード</h3>
+                    <div id="pool-zone" class="flex flex-wrap gap-2 min-h-[100px]" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+                </div>
+                <div class="flex justify-center pb-8">
+                    <button onclick="calculateResult()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 px-8 rounded-xl text-lg shadow-xl active:scale-95">決算確定</button>
+                </div>
+            </div>
+
+            <!-- Phase 3: Result -->
+            <div id="result-phase" class="hidden text-center space-y-6 bg-white p-6 md:p-12 rounded-3xl shadow-2xl border-4 md:border-8 border-double border-blue-200">
+                <div class="pixel-font text-3xl md:text-5xl text-blue-600 mb-2" id="result-status">COMPLETED</div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <div class="p-3 bg-blue-50 rounded-xl"><div class="text-xs text-gray-500">総収益</div><div class="text-lg md:text-2xl font-bold text-blue-600" id="res-revenue">¥0</div></div>
+                    <div class="p-3 bg-red-50 rounded-xl"><div class="text-xs text-gray-500">総費用</div><div class="text-lg md:text-2xl font-bold text-red-600" id="res-expense">¥0</div></div>
+                    <div class="p-3 bg-orange-100 rounded-xl border-2 border-orange-300"><div class="text-xs text-gray-600 font-bold">当期純利益</div><div class="text-lg md:text-2xl font-black text-orange-600" id="final-profit">¥0</div></div>
+                </div>
+                <div id="result-details" class="max-w-md mx-auto bg-gray-50 p-4 rounded-xl text-left text-sm space-y-2 border border-gray-200"></div>
+                <div class="pt-4"><button onclick="location.reload()" class="bg-blue-600 text-white font-bold py-3 px-8 rounded-full shadow-lg">もう一度</button></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ITEMS = [
+            { id: 1, name: "現金", type: "資産", icon: "💰", value: 500000 },
+            { id: 2, name: "当座預金", type: "資産", icon: "🏦", value: 800000 },
+            { id: 3, name: "受取手形", type: "資産", icon: "役", value: 600000 },
+            { id: 4, name: "売掛金", type: "資産", icon: "📄", value: 900000 },
+            { id: 5, name: "売買目的有価証券", type: "資産", icon: "📈", value: 400000 },
+            { id: 6, name: "貸付金", type: "資産", icon: "🤝", value: 700000 },
+            { id: 7, name: "建物", type: "資産", icon: "🏢", value: 2500000 },
+            { id: 8, name: "車両運搬具", type: "資産", icon: "🚚", value: 1200000 },
+            { id: 9, name: "ソフトウェア", type: "資産", icon: "💻", value: 300000 },
+            { id: 10, name: "未収収益", type: "資産", icon: "⏳", value: 100000 },
+            { id: 11, name: "前払費用", type: "資産", icon: "📅", value: 150000 },
+            { id: 12, name: "支払手形", type: "負債", icon: "✍️", value: 500000 },
+            { id: 13, name: "買掛金", type: "負債", icon: "🛒", value: 800000 },
+            { id: 14, name: "長期借入金", type: "負債", icon: "💸", value: 1500000 },
+            { id: 15, name: "退職給付引当金", type: "負債", icon: "👴", value: 600000 },
+            { id: 16, name: "未払費用", type: "負債", icon: "📋", value: 120000 },
+            { id: 17, name: "前受収益", type: "負債", icon: "📥", value: 90000 },
+            { id: 18, name: "法人税等調整額", type: "負債", icon: "🏛️", value: 200000 },
+            { id: 19, name: "売上", type: "収益", icon: "🔥", value: 3000000 },
+            { id: 20, name: "受取利息", type: "収益", icon: "🪙", value: 50000 },
+            { id: 21, name: "有価証券評価益", type: "収益", icon: "💎", value: 150000 },
+            { id: 22, name: "国庫補助金受贈益", type: "収益", icon: "🇯🇵", value: 500000 },
+            { id: 23, name: "固定資産売却益", type: "収益", icon: "🏠", value: 300000 },
+            { id: 24, name: "受取配当金", type: "収益", icon: "🍇", value: 80000 },
+            { id: 25, name: "仕入", type: "費用", icon: "📦", value: 1800000 },
+            { id: 26, name: "給料", type: "費用", icon: "👔", value: 800000 },
+            { id: 27, name: "減価償却費", type: "費用", icon: "📉", value: 400000 },
+            { id: 28, name: "貸倒引当金繰入", type: "費用", icon: "⚠️", value: 70000 },
+            { id: 29, name: "支払利息", type: "費用", icon: "⚖️", value: 60000 },
+            { id: 30, name: "租税公課", type: "費用", icon: "📜", value: 100000 }
+        ];
+
+        let balance = 3000000; 
+        let inventory = [];
+        const PURCHASE_PRICE = 200000;
+        let draggedEl = null;
+        let activeZones = [];
+
+        function initGame() {
+            initCatalog();
+            updateDisplay();
+            activeZones = [document.getElementById('debit-zone'), document.getElementById('credit-zone'), document.getElementById('pool-zone')];
+            new QRCode(document.getElementById("qrcode-container"), {
+                text: window.location.href,
+                width: 180,
+                height: 180
+            });
+        }
+
+        function initCatalog() {
+            const catalog = document.getElementById('item-catalog');
+            catalog.innerHTML = '';
+            ITEMS.forEach(item => {
+                const btn = document.createElement('button');
+                btn.className = "p-2 rounded-lg border bg-white shadow-sm flex flex-col items-center hover:border-orange-400 hover:shadow-md transition-all active:scale-95";
+                btn.onclick = () => buyItem(item, btn);
+                const typeColors = { "資産": "text-green-600", "負債": "text-red-600", "収益": "text-blue-600", "費用": "text-yellow-600" };
+                btn.innerHTML = `<div class="text-xl mb-1">${item.icon}</div><div class="text-[9px] font-bold h-6 overflow-hidden">${item.name}</div><div class="text-[8px] ${typeColors[item.type]} font-bold">${item.type}</div>`;
+                catalog.appendChild(btn);
+            });
+        }
+
+        function buyItem(item, btnElement) {
+            if (balance < PURCHASE_PRICE) return;
+            balance -= PURCHASE_PRICE;
+            inventory.push({...item});
+            document.getElementById('inventory').appendChild(createCardElement(item));
+            btnElement.classList.add('opacity-30', 'grayscale');
+            btnElement.disabled = true;
+            updateDisplay();
+        }
+
+        function createCardElement(item, isDraggable = false) {
+            const div = document.createElement('div');
+            div.className = `p-2 rounded-lg border bg-white shadow-sm flex flex-col items-center w-20 md:w-24 card-animate cursor-move shrink-0`;
+            div.id = `card-${Math.random().toString(36).substr(2, 9)}`;
+            div.innerHTML = `<div class="text-xl md:text-2xl">${item.icon}</div><div class="text-[8px] md:text-[10px] font-bold truncate w-full text-center">${item.name}</div><div class="text-[8px] text-gray-400">¥${item.value.toLocaleString()}</div>`;
+            div.dataset.itemData = JSON.stringify(item);
+            if (isDraggable) {
+                div.draggable = true;
+                div.ondragstart = (e) => { e.dataTransfer.setData("text/plain", e.target.id); e.target.classList.add('dragging'); };
+                div.ondragend = (e) => e.target.classList.remove('dragging');
+                div.addEventListener('touchstart', handleTouchStart, { passive: false });
+                div.addEventListener('touchmove', handleTouchMove, { passive: false });
+                div.addEventListener('touchend', handleTouchEnd, { passive: false });
+            }
+            return div;
+        }
+
+        function handleTouchStart(e) { draggedEl = e.currentTarget; draggedEl.classList.add('dragging'); }
+        function handleTouchMove(e) {
+            if (!draggedEl) return;
+            e.preventDefault();
+            const touch = e.touches[0];
+            draggedEl.style.position = 'fixed';
+            draggedEl.style.left = (touch.pageX - 40) + 'px';
+            draggedEl.style.top = (touch.pageY - 40) + 'px';
+            activeZones.forEach(zone => {
+                const rect = zone.getBoundingClientRect();
+                if (touch.clientX >= rect.left && touch.clientX <= rect.right && touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
+                    zone.classList.add('drag-over');
+                } else { zone.classList.remove('drag-over'); }
+            });
+        }
+        function handleTouchEnd(e) {
+            if (!draggedEl) return;
+            draggedEl.classList.remove('dragging');
+            const touch = e.changedTouches[0];
+            activeZones.forEach(zone => {
+                zone.classList.remove('drag-over');
+                const rect = zone.getBoundingClientRect();
+                if (touch.clientX >= rect.left && touch.clientX <= rect.right && touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
+                    zone.appendChild(draggedEl);
+                }
+            });
+            draggedEl.style.position = ''; draggedEl.style.left = ''; draggedEl.style.top = ''; draggedEl = null;
+            updateZoneTotals();
+        }
+
+        function startSettlement() {
+            if (inventory.length === 0) return;
+            document.getElementById('auction-phase').classList.add('hidden');
+            document.getElementById('settlement-phase').classList.remove('hidden');
+            const pool = document.getElementById('pool-zone');
+            pool.innerHTML = '';
+            inventory.forEach(item => pool.appendChild(createCardElement(item, true)));
+        }
+
+        function allowDrop(e) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
+        function drop(e) {
+            e.preventDefault(); e.currentTarget.classList.remove('drag-over');
+            const id = e.dataTransfer.getData("text/plain");
+            const el = document.getElementById(id);
+            if (el) e.currentTarget.appendChild(el);
+            updateZoneTotals();
+        }
+
+        function updateZoneTotals() {
+            const sum = (id) => Array.from(document.getElementById(id).children).reduce((a, b) => a + JSON.parse(b.dataset.itemData).value, 0);
+            document.getElementById('debit-total').innerText = `¥${sum('debit-zone').toLocaleString()}`;
+            document.getElementById('credit-total').innerText = `¥${sum('credit-zone').toLocaleString()}`;
+        }
+
+        function calculateResult() {
+            const debitItems = Array.from(document.getElementById('debit-zone').children).map(el => JSON.parse(el.dataset.itemData));
+            const creditItems = Array.from(document.getElementById('credit-zone').children).map(el => JSON.parse(el.dataset.itemData));
+            let dSum = debitItems.reduce((a, b) => a + b.value, 0);
+            let cSum = creditItems.reduce((a, b) => a + b.value, 0);
+            let rev = inventory.filter(i => i.type === "収益").reduce((a, b) => a + b.value, 0);
+            let exp = inventory.filter(i => i.type === "費用").reduce((a, b) => a + b.value, 0);
+            const isBalanced = (dSum === cSum && dSum > 0);
+            document.getElementById('settlement-phase').classList.add('hidden');
+            document.getElementById('result-phase').classList.remove('hidden');
+            document.getElementById('res-revenue').innerText = `¥${rev.toLocaleString()}`;
+            document.getElementById('res-expense').innerText = `¥${exp.toLocaleString()}`;
+            document.getElementById('final-profit').innerText = `¥${(rev - exp).toLocaleString()}`;
+            document.getElementById('result-details').innerHTML = `<div class="flex justify-between"><span>借方合計:</span> <span>¥${dSum.toLocaleString()}</span></div><div class="flex justify-between"><span>貸方合計:</span> <span>¥${cSum.toLocaleString()}</span></div><div class="mt-4 font-bold text-center ${isBalanced ? 'text-green-600' : 'text-red-600'}">${isBalanced ? '一致しました！' : '不一致です。'}</div>`;
+            document.getElementById('result-status').innerText = isBalanced ? "EXCELLENT" : "FAILED";
+        }
+
+        function updateDisplay() {
+            document.getElementById('current-balance').innerText = `¥${balance.toLocaleString()}`;
+            document.getElementById('inv-count').innerText = inventory.length;
+        }
+
+        function showQRCode() { document.getElementById('qr-modal').style.display = 'flex'; }
+        function closeQRCode() { document.getElementById('qr-modal').style.display = 'none'; }
+
+        // 初期実行
+        window.onload = initGame;
+    </script>
+</body>
+</html>
